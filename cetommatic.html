@@ -1,0 +1,164 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CETOMMATIC</title>
+<script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+<link rel="stylesheet" href="cetommatic.css">
+</head>
+<body>
+<div id="app">
+
+<header>
+<div class="logo">CETO<span>MMATIC</span></div>
+<nav>
+<button v-for="n in navigation" :key="n.value" :class="{active:currentType===n.value}" @click="changeType(n.value)">{{n.label}}</button>
+</nav>
+</header>
+
+<section class="hero">
+<div v-for="(bg,i) in heroBackgrounds" :key="currentType+'-'+i" class="hero-slide" :class="{active:heroIndex===i}" :style="{backgroundImage:'url('+bg+')'}"></div>
+<h1>EXPLORE YOUR NEXT <span>FAVOURITE</span></h1>
+<p>Discover movies, TV shows and anime. Explore actors, characters, ratings and trailers.</p>
+<button class="primary" @click="scrollToContent">EXPLORE NOW</button>
+</section>
+
+<main class="container" id="main-content">
+<h2 class="section-title">{{sectionTitle}}</h2>
+
+<div class="history" v-if="searchHistory.length">
+<button v-for="(s,i) in searchHistory" :key="i" @click="useHistory(s)">{{s}}</button>
+<button class="clear" @click="clearHistory">Clear History</button>
+</div>
+
+<div class="controls">
+<input v-model="search" @keyup.enter="searchContent" placeholder="Search movies, TV shows or anime...">
+<select v-model="selectedGenre" @change="currentPage=1;loadContent()">
+<option value="all">All Genres</option>
+<option v-for="g in genreList" :key="g.id" :value="g.id">{{g.name}}</option>
+</select>
+<button class="primary" @click="searchContent">Search</button>
+</div>
+
+<div v-if="loading" class="loading">Loading...</div>
+
+<div class="grid" v-else>
+<div class="movie-card" v-for="item in items" :key="item.id" @click="openDetails(item)">
+<img :src="poster(item)" :alt="getTitle(item)" loading="lazy">
+<div class="movie-info">
+<span class="card-type">{{getType(item)}}</span>
+<h3>{{getTitle(item)}}</h3>
+<p>{{getYear(item)}}</p>
+<p class="rating">★ {{getRating(item)}}</p>
+</div>
+</div>
+<div v-if="!items.length&&!loading" class="empty">{{errorMessage||'No results found.'}}</div>
+</div>
+
+<div class="pagination" v-if="totalPages>1&&!loading">
+<button @click="changePage(currentPage-1)" :disabled="currentPage===1">Previous</button>
+<button v-for="page in visiblePages" :key="page" :class="{active:currentPage===page}" @click="changePage(page)">{{page}}</button>
+<span v-if="totalPages>5">/ {{totalPages}}</span>
+<button @click="changePage(currentPage+1)" :disabled="currentPage===totalPages">Next</button>
+</div>
+</main>
+
+<div class="modal" v-if="showModal" @click.self="closeModal">
+<div class="modal-content">
+<button class="close" @click="closeModal">×</button>
+
+<div v-if="detailLoading" class="loading">Loading details...</div>
+
+<template v-else-if="selectedItem">
+
+<div v-if="!selectedActor" class="detail-top">
+<img class="detail-poster" :src="poster(selectedItem)">
+<div class="detail-text">
+<span class="card-type">{{getType(selectedItem)}}</span>
+<h2>{{getTitle(selectedItem)}}</h2>
+<p>{{getYear(selectedItem)}}</p>
+<p class="rating">★ {{getRating(selectedItem)}}</p>
+<p>{{selectedItem.overview||selectedItem.description||'No description available.'}}</p>
+<p v-if="selectedItem.genres?.length"><b>Genres:</b> {{selectedItem.genres.map(g=>g.name||g).join(', ')}}</p>
+<p v-if="selectedItem.runtime"><b>Runtime:</b> {{selectedItem.runtime}} minutes</p>
+<p v-if="selectedItem.episodes"><b>Episodes:</b> {{selectedItem.episodes}}</p>
+</div>
+</div>
+
+<div class="watch-detail" v-if="!selectedActor&&['movie','tv'].includes(selectedItem.media_type)">
+<h3>WHERE TO WATCH</h3>
+<p class="watch-message">{{watchMessage}}</p>
+<div v-if="watchLoading" class="loading">Checking streaming services...</div>
+<div class="source-list" v-else>
+<div class="source-card" v-for="(s,i) in watchSources" :key="i">
+<h4>{{s.name||s.source_name||s.source||'Streaming Service'}}</h4>
+<p>{{s.type||s.type_name||'Availability'}}</p>
+<a v-if="s.web_url||s.url" :href="s.web_url||s.url" target="_blank" rel="noopener noreferrer">WATCH HERE ↗</a>
+</div>
+</div>
+</div>
+
+<div v-if="selectedActor" class="actor-detail">
+<button class="back" @click="backToDetails">← Back to Details</button>
+<div class="actor-profile">
+<img :src="personImage(selectedActor.profile_path)">
+<div>
+<h2>{{selectedActor.name}}</h2>
+<p>{{selectedActor.birthday||''}}</p>
+<p>{{selectedActor.place_of_birth||''}}</p>
+<p>{{selectedActor.biography||'Biography unavailable.'}}</p>
+</div>
+</div>
+<h3>Filmography</h3>
+<div class="cast-grid">
+<div class="person-card" v-for="f in actorCredits" :key="f.id+f.media_type" @click="openActorFilm(f)">
+<img :src="poster(f)">
+<div>{{getTitle(f)}}<p>{{getYear(f)}}</p></div>
+</div>
+</div>
+</div>
+
+<div class="detail-section" v-if="!selectedActor&&trailerKey">
+<h3>Official Trailer</h3>
+<iframe class="trailer-frame" :src="'https://www.youtube.com/embed/'+trailerKey" allowfullscreen></iframe>
+</div>
+
+<div class="detail-section" v-if="!selectedActor&&cast.length">
+<h3>Cast & Actors</h3>
+<div class="cast-grid">
+<div class="person-card" v-for="p in cast" :key="p.id" @click="openActor(p)">
+<img :src="personImage(p.profile_path)">
+<div>{{p.name}}<p>{{p.character}}</p></div>
+</div>
+</div>
+</div>
+
+<div class="detail-section" v-if="!selectedActor&&selectedItem.media_type==='anime'">
+<h3>Anime Characters</h3>
+<div v-if="characterLoading" class="loading">Loading characters...</div>
+<div class="character-grid" v-else>
+<div class="person-card" v-for="c in characters" :key="c.id">
+<img :src="c.image" :alt="c.name">
+<div>{{c.name}}<p>{{c.role}}</p></div>
+</div>
+</div>
+<div v-if="characterHasMore" style="text-align:center;margin-top:25px">
+<button class="primary" @click="loadMoreCharacters" :disabled="characterLoadingMore">{{characterLoadingMore?'LOADING...':'LOAD MORE CHARACTERS'}}</button>
+</div>
+</div>
+
+</template>
+</div>
+</div>
+
+<footer>
+<p>CETO<span>MMATIC</span> | Powered by TMDB, Kitsu, Watchmode and Vue.js</p>
+<p style="margin-top:8px">This product uses the TMDB API but is not endorsed or certified by TMDB.</p>
+</footer>
+
+</div>
+<script src="cetommatic.js"></script>
+</body>
+</html>
